@@ -99,6 +99,72 @@ const debouncedSave = useCallback(
 );
 ```
 
+### React Hooks Best Practices
+
+#### useCallback Dependencies
+The application follows these key principles for useCallback dependencies:
+
+1. **Minimal Dependencies**: Only include dependencies that are directly used within the callback and can change between renders
+   ```typescript
+   // Good: No dependencies needed when using setState with prev
+   const selectNote = useCallback((id: string) => {
+     setNoteStore(prev => ({ ...prev, activeNoteId: id }));
+   }, []);
+   ```
+
+2. **State Updates with Prev**: When updating state based on its previous value, you don't need to include the state variable in dependencies
+   ```typescript
+   // Good: Using prev parameter instead of external state
+   const deleteNote = useCallback((id: string) => {
+     setNoteStore(prev => ({
+       notes: prev.notes.filter(note => note.id !== id),
+       activeNoteId: prev.activeNoteId === id ? null : prev.activeNoteId
+     }));
+   }, []);
+   ```
+
+3. **Direct State Usage**: Include state variables in dependencies only when they're used directly, not through the prev parameter
+   ```typescript
+   // Good: Including activeNoteId because it's used directly
+   const updateCurrentNote = useCallback((content: string) => {
+     if (!noteStore.activeNoteId) return;
+     setNoteStore(prev => ({
+       ...prev,
+       notes: prev.notes.map(note =>
+         note.id === prev.activeNoteId
+           ? { ...note, content, updatedAt: new Date().toISOString() }
+           : note
+       )
+     }));
+   }, [noteStore.activeNoteId]);
+   ```
+
+4. **Debounced Functions with useCallback**: When implementing debounced functions with useCallback, use an IIFE (Immediately Invoked Function Expression) pattern to maintain the timeout reference:
+   ```typescript
+   const debouncedSave = useCallback(
+     (() => {
+       let timeout: NodeJS.Timeout;
+       return (data: NoteStore) => {
+         clearTimeout(timeout);
+         timeout = setTimeout(() => {
+           try {
+             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+           } catch (error) {
+             console.error('Error saving notes:', error);
+           }
+         }, 500);
+       };
+     })(),
+     []
+   );
+   ```
+   This pattern:
+   - Creates a closure to maintain the timeout reference
+   - Properly handles cleanup between calls
+   - Keeps the implementation inline for better type inference
+   - Avoids React hooks dependency warnings
+   - Maintains proper TypeScript type checking
+
 ### Performance Optimizations
 1. Debounced auto-save
 2. Memoized components

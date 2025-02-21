@@ -107,13 +107,19 @@ export default function Home() {
 
   // Save notes to local storage with debounce
   const debouncedSave = useCallback(
-    debounce((data: NoteStore) => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      } catch (error) {
-        console.error('Error saving notes:', error);
-      }
-    }, 500),
+    (() => {
+      let timeout: NodeJS.Timeout;
+      return (data: NoteStore) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          } catch (error) {
+            console.error('Error saving notes:', error);
+          }
+        }, 500);
+      };
+    })(),
     []
   );
 
@@ -156,9 +162,8 @@ export default function Home() {
 
   const selectNote = useCallback((id: string, e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const note = noteStore.notes.find(n => n.id === id);
     setNoteStore(prev => ({ ...prev, activeNoteId: id }));
-  }, [noteStore.notes]);
+  }, []);
 
   const deleteNote = useCallback((id: string, e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -168,7 +173,7 @@ export default function Home() {
       notes: prev.notes.filter(note => note.id !== id),
       activeNoteId: prev.activeNoteId === id ? null : prev.activeNoteId
     }));
-  }, [noteStore.activeNoteId]);
+  }, []);
 
   return (
     <main className="flex min-h-screen bg-slate-100 dark:bg-slate-900 items-center justify-center p-4">
