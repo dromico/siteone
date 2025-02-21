@@ -1,112 +1,233 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect, useCallback, MouseEvent, memo, useRef, useMemo } from 'react';
+import { Note, NoteStore } from './types/note';
+
+const STORAGE_KEY = 'note-app-storage';
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
+function debounce<T extends (...args: any[]) => void>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+const formatDate = (date: string) => {
+  return new Date(date).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+interface NoteEditorProps {
+  content: string;
+  onContentChange: (content: string) => void;
+}
+
+const NoteEditor = memo(({ content, onContentChange }: NoteEditorProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [localContent, setLocalContent] = useState(content);
+
+  // Sync local content with prop changes
+  useEffect(() => {
+    setLocalContent(content);
+  }, [content]);
+
+  // Debounced update to parent
+  const debouncedUpdate = useMemo(
+    () =>
+      debounce((value: string) => {
+        onContentChange(value);
+      }, 100),
+    [onContentChange]
+  );
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const newValue = e.target.value;
+      setLocalContent(newValue); // Update local state immediately for responsive typing
+      debouncedUpdate(newValue); // Debounced update to parent
+    },
+    [debouncedUpdate]
+  );
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={localContent}
+      onChange={handleChange}
+      placeholder="Start typing your note..."
+      className="w-full h-full p-4 bg-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-900 dark:text-slate-50 text-lg resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+    />
+  );
+});
+
+NoteEditor.displayName = 'NoteEditor';
 
 export default function Home() {
+  const [noteStore, setNoteStore] = useState<NoteStore>({
+    notes: [],
+    activeNoteId: null
+  });
+  
+  const activeNote = useMemo(
+    () => noteStore.notes.find(n => n.id === noteStore.activeNoteId),
+    [noteStore.activeNoteId, noteStore.notes]
+  );
+  
+  const noteContent = activeNote?.content || '';
+
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Load notes from local storage
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setNoteStore(parsed);
+        if (parsed.activeNoteId) {
+          const activeNote = parsed.notes.find((n: Note) => n.id === parsed.activeNoteId);
+        }
+      } catch (error) {
+        console.error('Error loading notes:', error);
+      }
+    }
+  }, []);
+
+  // Save notes to local storage with debounce
+  const debouncedSave = useCallback(
+    debounce((data: NoteStore) => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch (error) {
+        console.error('Error saving notes:', error);
+      }
+    }, 500),
+    []
+  );
+
+  useEffect(() => {
+    debouncedSave(noteStore);
+  }, [noteStore, debouncedSave]);
+
+  const createNewNote = useCallback(async (e: MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (isCreating) return;
+
+    setIsCreating(true);
+    const newNote: Note = {
+      id: generateId(),
+      content: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setNoteStore(prev => ({
+      notes: [newNote, ...prev.notes],
+      activeNoteId: newNote.id
+    }));
+    
+    // Reset creating state after a short delay
+    setTimeout(() => setIsCreating(false), 300);
+  }, [isCreating]);
+
+  const updateCurrentNote = useCallback((content: string) => {
+      if (!noteStore.activeNoteId) return;
+      setNoteStore(prev => ({
+        ...prev,
+        notes: prev.notes.map(note =>
+          note.id === prev.activeNoteId
+            ? { ...note, content, updatedAt: new Date().toISOString() }
+            : note
+        )
+      }));
+ }, [noteStore.activeNoteId]);
+
+  const selectNote = useCallback((id: string, e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const note = noteStore.notes.find(n => n.id === id);
+    setNoteStore(prev => ({ ...prev, activeNoteId: id }));
+  }, [noteStore.notes]);
+
+  const deleteNote = useCallback((id: string, e: MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setNoteStore(prev => ({
+      notes: prev.notes.filter(note => note.id !== id),
+      activeNoteId: prev.activeNoteId === id ? null : prev.activeNoteId
+    }));
+  }, [noteStore.activeNoteId]);
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+    <main className="flex min-h-screen bg-slate-100 dark:bg-slate-900 items-center justify-center p-4">
+      <div className="w-[1200px] h-[800px] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl flex overflow-hidden">
+        {/* History Panel */}
+        <div className="w-72 border-r border-slate-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-850">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+            <button
+              onClick={createNewNote}
+              disabled={isCreating}
+              className={`w-full bg-blue-500 hover:bg-blue-600 text-white py-2.5 px-4 rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg transform hover:-translate-y-0.5 ${
+                isCreating ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              + New Note
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 p-3">
+            {noteStore.notes.map(note => (
+              <div
+                key={note.id}
+                onClick={(e) => selectNote(note.id, e)}
+                className={`p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 group ${
+                  noteStore.activeNoteId === note.id
+                    ? 'bg-blue-100 dark:bg-blue-900/50 shadow-md'
+                    : 'hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <p className="text-slate-900 dark:text-slate-50 line-clamp-2 font-medium">
+                    {note.content ? note.content.split('\n')[0] || 'Empty note' : 'New Note'}
+                  </p>
+                  <button
+                    onClick={(e) => deleteNote(note.id, e)}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-all duration-200 p-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">{formatDate(note.updatedAt)}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
+        {/* Editor Panel */}
+        <div className="flex-1 flex flex-col bg-white dark:bg-slate-800">
+          <div className="flex-1 p-6">
+            <NoteEditor content={noteContent} onContentChange={updateCurrentNote} />
+          </div>
+          {noteStore.activeNoteId && (
+            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+              Last updated: {activeNote ? formatDate(activeNote.updatedAt) : ''}
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );
